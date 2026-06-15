@@ -1,0 +1,10 @@
+{
+  "name": "jaas-token-generator",
+  "version": "1.0.0",
+  "description": "JaaS JWT Token Generator for Golla",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "
