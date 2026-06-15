@@ -1,11 +1,9 @@
-const functions = require('@google-cloud/functions-framework');
+const http = require('http');
 const crypto = require('crypto');
 
-// ─── JaaS Config ───────────────────────────────────────────────
-const APP_ID  = 'vpaas-magic-cookie-b4744e36a70547ebb8b2a6f89f1eea5e';
-const KEY_ID  = 'vpaas-magic-cookie-b4744e36a70547ebb8b2a6f89f1eea5e/a62f39';
+const APP_ID = 'vpaas-magic-cookie-b4744e36a70547ebb8b2a6f89f1eea5e';
+const KEY_ID = 'vpaas-magic-cookie-b4744e36a70547ebb8b2a6f89f1eea5e/a62f39';
 
-// Private Key — JaaS Dashboard se download ki gayi
 const PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCu51NaQm63BiLo
 qBFlw2h73YjmMG15VaDQeDvg1oqN9F/y4QQKA4BnN0GuiZiRRGZlHkG39BYTxAqs
@@ -35,87 +33,49 @@ m8E+4mriD54dtK/eyGafeQ33IsLs5hHF+/4jIwRHxcXo5lRhe/PXXFdIFHkWZx73
 zh7lU9ejKMERgvaIgnapkEQ4
 -----END PRIVATE KEY-----`;
 
-// ─── JWT Builder (node crypto — no extra dependency) ───────────
 function base64url(buf) {
     return buf.toString('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function generateJWT(userId, userName, roomId) {
     const now = Math.floor(Date.now() / 1000);
-
-    const header = base64url(Buffer.from(JSON.stringify({
-        alg: 'RS256',
-        kid: KEY_ID,
-        typ: 'JWT'
-    })));
-
+    const header = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', kid: KEY_ID, typ: 'JWT' })));
     const payload = base64url(Buffer.from(JSON.stringify({
-        iss:     'chat',
-        iat:     now,
-        exp:     now + 7200,          // 2 ghante valid
-        nbf:     now - 10,
-        aud:     'jitsi',
-        sub:     APP_ID,
-        room:    roomId || '*',       // * = sab rooms access
+        iss: 'chat', iat: now, exp: now + 7200, nbf: now - 10, aud: 'jitsi',
+        sub: APP_ID, room: roomId || '*',
         context: {
-            user: {
-                id:          userId   || 'anonymous',
-                name:        userName || 'Guest',
-                avatar:      '',
-                email:       '',
-                moderator:   'false'
-            },
-            features: {
-                livestreaming: 'false',
-                recording:     'false',
-                transcription: 'false',
-                'outbound-call': 'false'
-            }
+            user: { id: userId || 'anonymous', name: userName || 'Guest', avatar: '', email: '', moderator: 'false' },
+            features: { livestreaming: 'false', recording: 'false', transcription: 'false', 'outbound-call': 'false' }
         }
     })));
-
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(`${header}.${payload}`);
-    const signature = base64url(sign.sign(PRIVATE_KEY));
-
-    return `${header}.${payload}.${signature}`;
+    return `${header}.${payload}.${base64url(sign.sign(PRIVATE_KEY))}`;
 }
 
-// ─── Cloud Function Entry Point ─────────────────────────────────
-functions.http('generateJaaSToken', (req, res) => {
-    // CORS — aapki domain se request allow karo
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
+const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (req.method !== 'POST') { res.writeHead(405); res.end(JSON.stringify({ error: 'Only POST allowed' })); return; }
 
-    if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Only POST allowed' });
-        return;
-    }
-
-    try {
-        const { userId, userName, roomId } = req.body;
-
-        if (!userId) {
-            res.status(400).json({ error: 'userId required' });
-            return;
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+        try {
+            const { userId, userName, roomId } = JSON.parse(body);
+            if (!userId) { res.writeHead(400); res.end(JSON.stringify({ error: 'userId required' })); return; }
+            const token = generateJWT(userId, userName, roomId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ token }));
+        } catch (err) {
+            res.writeHead(500); res.end(JSON.stringify({ error: 'Token generation failed' }));
         }
-
-        const token = generateJWT(userId, userName, roomId);
-        console.log(`[JaaS] Token generated for user: ${userId}, room: ${roomId}`);
-
-        res.status(200).json({ token });
-
-    } catch (err) {
-        console.error('[JaaS] Token error:', err);
-        res.status(500).json({ error: 'Token generation failed' });
-    }
+    });
 });
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
