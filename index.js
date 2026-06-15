@@ -38,12 +38,12 @@ function base64url(buf) {
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function generateJWT(userId, userName, roomId) {
+function generateJWT(userId, userName) {
     const now = Math.floor(Date.now() / 1000);
     const header = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', kid: KEY_ID, typ: 'JWT' })));
     const payload = base64url(Buffer.from(JSON.stringify({
         iss: 'chat', iat: now, exp: now + 7200, nbf: now - 10, aud: 'jitsi',
-        sub: APP_ID, room: roomId || '*',
+        sub: APP_ID, room: '*',   // ✅ Wildcard — sab rooms allow
         context: {
             user: { id: userId || 'anonymous', name: userName || 'Guest', avatar: '', email: '', moderator: 'false' },
             features: { livestreaming: 'false', recording: 'false', transcription: 'false', 'outbound-call': 'false' }
@@ -66,9 +66,9 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
         try {
-            const { userId, userName, roomId } = JSON.parse(body);
+            const { userId, userName } = JSON.parse(body);
             if (!userId) { res.writeHead(400); res.end(JSON.stringify({ error: 'userId required' })); return; }
-            const token = generateJWT(userId, userName, roomId);
+            const token = generateJWT(userId, userName);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ token }));
         } catch (err) {
