@@ -42,15 +42,38 @@ function generateJWT(userId, userName, roomId) {
     const now = Math.floor(Date.now() / 1000);
     const safeName = (roomId || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const roomName = safeName ? `golla-${safeName}` : '*';
-    const header = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', kid: KEY_ID, typ: 'JWT' })));
+
+    const header = base64url(Buffer.from(JSON.stringify({
+        alg: 'RS256',
+        kid: KEY_ID,
+        typ: 'JWT'
+    })));
+
     const payload = base64url(Buffer.from(JSON.stringify({
-        iss: 'chat', iat: now, exp: now + 7200, nbf: now - 10, aud: 'jitsi',
-        sub: APP_ID, room: roomName,   // ✅ Exact conference name
+        iss: 'chat',
+        iat: now,
+        exp: now + 7200,
+        nbf: now - 10,
+        aud: 'jitsi',
+        sub: APP_ID,
+        room: roomName,
         context: {
-            user: { id: userId || 'anonymous', name: userName || 'Guest', avatar: '', email: '', moderator: 'false' },
-            features: { livestreaming: 'false', recording: 'false', transcription: 'false', 'outbound-call': 'false' }
+            user: {
+                id:        userId || 'anonymous',
+                name:      userName || 'Guest',
+                avatar:    '',
+                email:     '',
+                moderator: false        // ✅ boolean
+            },
+            features: {
+                livestreaming:   false, // ✅ boolean
+                recording:       false,
+                transcription:   false,
+                'outbound-call': false
+            }
         }
     })));
+
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(`${header}.${payload}`);
     return `${header}.${payload}.${base64url(sign.sign(PRIVATE_KEY))}`;
@@ -61,23 +84,38 @@ const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-    if (req.method !== 'POST') { res.writeHead(405); res.end(JSON.stringify({ error: 'Only POST allowed' })); return; }
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+
+    if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Only POST allowed' }));
+        return;
+    }
 
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
         try {
             const { userId, userName, roomId } = JSON.parse(body);
-            if (!userId) { res.writeHead(400); res.end(JSON.stringify({ error: 'userId required' })); return; }
+            if (!userId) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'userId required' }));
+                return;
+            }
             const token = generateJWT(userId, userName, roomId);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ token }));
         } catch (err) {
-            res.writeHead(500); res.end(JSON.stringify({ error: 'Token generation failed' }));
+            console.error('Token error:', err);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: 'Token generation failed' }));
         }
     });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`JaaS Token Server running on port ${PORT}`));
