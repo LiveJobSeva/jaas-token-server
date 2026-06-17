@@ -38,7 +38,7 @@ function base64url(buf) {
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function generateJWT(userId, userName, roomId, isModerator) {
+function generateJWT(userId, userName, roomId, moderator) {
     const now = Math.floor(Date.now() / 1000);
     const safeName = (roomId || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const roomName = safeName ? `golla-${safeName}` : '*';
@@ -63,7 +63,7 @@ function generateJWT(userId, userName, roomId, isModerator) {
                 name:      userName || 'Guest',
                 avatar:    '',
                 email:     '',
-                moderator: isModerator === true  // ✅ FIX
+                moderator: moderator === true   // ✅ KEY FIX
             },
             features: {
                 livestreaming:   false,
@@ -101,6 +101,8 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
         try {
             const { userId, userName, roomId, moderator } = JSON.parse(body);
+            console.log('Token request:', { userId, roomId, moderator });  // debug log
+
             if (!userId) {
                 res.writeHead(400);
                 res.end(JSON.stringify({ error: 'userId required' }));
